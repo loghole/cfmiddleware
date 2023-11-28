@@ -1,4 +1,4 @@
-package cfmiddleware
+package cors
 
 import (
 	"log"
