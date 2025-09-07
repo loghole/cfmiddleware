@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	node "plugin"
 	"runtime/debug"
 	"sync/atomic"
 
+	"github.com/ebitengine/purego"
 	"github.com/google/uuid"
 )
 
-var ptr atomic.Pointer[node.Plugin]
+var ptr atomic.Uintptr
 
 func Load(reader io.Reader) error {
 	file, err := os.CreateTemp(os.TempDir(), uuid.NewString()+".blob")
@@ -25,12 +25,14 @@ func Load(reader io.Reader) error {
 		return fmt.Errorf("copy: %w", err)
 	}
 
-	plug, err := node.Open(file.Name())
+	lib, err := purego.Dlopen(file.Name(), purego.RTLD_GLOBAL|purego.RTLD_NOW)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
 
-	ptr.Store(plug)
+	if old := ptr.Swap(lib); old != 0 {
+		purego.Dlclose(old)
+	}
 
 	return nil
 }
@@ -58,20 +60,16 @@ func lookup[T any](name string) (T, error) {
 	var empty T
 
 	plug := ptr.Load()
-
-	if plug == nil {
+	if plug == 0 {
 		return empty, fmt.Errorf("ptr not initialized")
 	}
 
-	symbol, err := plug.Lookup(name)
+	symbol, err := purego.Dlsym(plug, name)
 	if err != nil {
 		return empty, fmt.Errorf("lookup: %w", err)
 	}
 
-	casted, ok := symbol.(T)
-	if !ok {
-		return empty, fmt.Errorf("type %T cant be casted to %T", symbol, empty)
-	}
+	purego.RegisterFunc(empty, symbol)
 
-	return casted, nil
+	return empty, nil
 }
